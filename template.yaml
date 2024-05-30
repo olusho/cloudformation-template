@@ -1,0 +1,210 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+
+  # DynamoDB Table
+  MetroDDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties: 
+      TableName: "metroddb"
+      AttributeDefinitions: 
+        - AttributeName: "PrimaryKey"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "PrimaryKey"
+          KeyType: "HASH"
+      ProvisionedThroughput: 
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  
+  # VPC
+  MetroVPC:
+    Type: "AWS::EC2::VPC"
+    Properties: 
+      CidrBlock: "10.50.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: 
+        - Key: "Name"
+          Value: "MetroVPC"
+      InstanceTenancy: "default"
+
+  # Internet Gateway
+  MetroIGW:
+    Type: "AWS::EC2::InternetGateway"
+    Properties: 
+      Tags: 
+        - Key: "Name"
+          Value: "MetroIGW"
+
+  # Attach Internet Gateway to VPC
+  AttachIGW:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties: 
+      VpcId: !Ref MetroVPC
+      InternetGatewayId: !Ref MetroIGW
+  
+  # Public Route Table
+  PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties: 
+      VpcId: !Ref MetroVPC
+      Tags: 
+        - Key: "Name"
+          Value: "PublicRouteTable"
+
+  # Default Route to Internet Gateway
+  DefaultRoute:
+    Type: "AWS::EC2::Route"
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref MetroIGW
+    
+  # Subnet 1 in ca-central-1a
+  Subnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MetroVPC
+      CidrBlock: "10.50.1.0/24"
+      AvailabilityZone: "ca-central-1a"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "Subnet1"
+
+  # Subnet 2 in ca-central-1a
+  Subnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MetroVPC
+      CidrBlock: "10.50.2.0/24"
+      AvailabilityZone: "ca-central-1a"
+      Tags:
+        - Key: "Name"
+          Value: "Subnet2"
+
+  # Subnet 3 in ca-central-1b
+  Subnet3:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MetroVPC
+      CidrBlock: "10.50.3.0/24"
+      AvailabilityZone: "ca-central-1b"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "Subnet3"
+
+  # Subnet 4 in ca-central-1b
+  Subnet4:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MetroVPC
+      CidrBlock: "10.50.4.0/24"
+      AvailabilityZone: "ca-central-1b"
+      Tags:
+        - Key: "Name"
+          Value: "Subnet4"
+  
+  # Associate Subnet 1 with Public Route Table
+  Subnet1RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  # Associate Subnet 3 with Public Route Table
+  Subnet3RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet3
+      RouteTableId: !Ref PublicRouteTable
+  
+  # Elastic IP
+  ElasticIP:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: "vpc"
+
+  # NAT Gateway in Subnet 1
+  NATGateway:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref Subnet1
+
+  # Private Route Table
+  PrivateRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties: 
+      VpcId: !Ref MetroVPC
+      Tags: 
+        - Key: "Name"
+          Value: "PrivateRouteTable"
+
+  # Route for NAT Gateway in Private Route Table
+  NATRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGateway
+  
+  # Associate Subnet 2 with Private Route Table
+  Subnet2RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Associate Subnet 4 with Private Route Table
+  Subnet4RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref Subnet4
+      RouteTableId: !Ref PrivateRouteTable
+  
+  # Security Group
+  MetroSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow SSH and HTTP from anywhere"
+      VpcId: !Ref MetroVPC
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+        - CidrIp: "0.0.0.0/0"
+          IpProtocol: "tcp"
+          FromPort: 80
+          ToPort: 80
+  
+  # Public EC2 Instance
+  PublicEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: "ami-0c4596ce1e7ae3e68"
+      NetworkInterfaces: 
+      - AssociatePublicIpAddress: "true"
+        DeviceIndex: "0"
+        GroupSet: 
+          - Ref: "MetroSecurityGroup"
+        SubnetId: 
+          Ref: "Subnet1"
+  
+  # Private EC2 Instance
+  PrivateEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: "ami-0c4596ce1e7ae3e68"
+      SubnetId: !Ref Subnet2
+      SecurityGroupIds:
+        - !Ref MetroSecurityGroup
+
+  
+
+  
+
